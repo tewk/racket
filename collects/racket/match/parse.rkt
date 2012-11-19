@@ -5,6 +5,9 @@
          "parse-helper.rkt"
          "parse-quasi.rkt"
          (for-template (only-in "runtime.rkt" matchable?)
+                       (only-in racket/set set-empty? set? set->list set-member?
+                                set-first set-rest in-set set-remove)
+                       racket/match
                        racket/base))
 
 (provide parse)
@@ -25,7 +28,8 @@
   (define disarmed-stx (syntax-disarm stx orig-insp))
   (syntax-case* disarmed-stx (not var struct box cons list vector ? and or quote app
                                   regexp pregexp list-rest list-no-order hash-table
-                                  quasiquote mcons list* mlist)
+                                  quasiquote mcons list* mlist set set-contains-all? 
+                                  set-contains-any? set-pair)
                 (lambda (x y) (eq? (syntax-e x) (syntax-e y)))
     [(expander args ...)
      (and (identifier? #'expander)
@@ -160,6 +164,32 @@
     [(s . pats)
      (and (identifier? #'s) (struct-info? (syntax-local-value #'s (lambda () #f))))
      (parse-struct disarmed-stx rearm+parse #'s #'pats)]
+    [(set)
+     (make-Pred #'set-empty?)]
+    [(set es ...)
+     (trans-match #'set?
+                  #'set->list
+                  (rearm+parse (syntax/loc stx (list-no-order es ...))))]
+    [(set-contains-all? e ...)
+     (make-Pred (rearm #'(lambda (s) (for/and ([x (list e ...)]) (set-member? s x)))))]
+    [(set-contains-any? e ...)
+     (make-Pred (rearm #'(lambda (s) (for/or ([x (list e ...)]) (set-member? s x)))))]
+    [(set-pair e1 e2)
+     (and (pattern-var? #'e1) (pattern-var? #'e2))
+     (trans-match #'set?
+                  #'(lambda (x) (list (set-first x) (set-rest x)))
+                  (rearm+parse (syntax/loc stx (list e1 e2))))]
+    [(set-pair e1 e2)
+     (pattern-var? #'e2)
+     (trans-match #'set?
+                  #'(lambda (s)
+                      (define y 
+                        (for/or ([x (in-set s)])
+                          (match x
+                            [e1 x]
+                            [else #f])))
+                      (and y (list y (set-remove s y))))
+                  (rearm+parse (syntax/loc stx (list e1 e2))))]
     [(? p q1 qs ...)
      (make-And (cons (make-Pred (rearm #'p))
                      (map rearm+parse (syntax->list #'(q1 qs ...)))))]

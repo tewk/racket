@@ -239,6 +239,42 @@ In more detail, patterns match as follows:
        contents of the fields of the instance.
        }
 
+ @item{@racket[(#,(racketidfont "set") _lvp ...)] --- like a
+       @racketidfont{list} pattern, but matching a set.
+
+       @examples[
+       #:eval match-eval
+       (match (set 1 '(2) '(2) '(2) 5)
+         [(set 1 (list a) 5) a])
+       ]}
+
+ @item{@racket[(#,(racketidfont "set-contains-all?") value ...)] --- matches
+       a set that contains all of the specified values.
+
+       @examples[
+       #:eval match-eval
+       (match (set (list 1 2) 'foo "hello")
+         [(and s (set-contains-all? (list 1 2) 'foo)) s])
+       ]}
+
+ @item{@racket[(#,(racketidfont "set-contains-any?") value ...)] --- matches
+       a set that contains any of the specified values.
+
+       @examples[
+       #:eval match-eval
+       (match (set (list 1 2) 'foo "hello")
+         [(and s (set-contains-any? (list 1 2) 'bar)) s])
+       ]}
+
+ @item{@racket[(#,(racketidfont "set-pair") _pat1 _pat2)] --- like a
+       @racketidfont{pair} pattern, but matching the @racket[set-first] @racket[set-rest] of a set.
+
+       @examples[
+       #:eval match-eval
+       (match (set (list 1 2) 'foo "hello")
+         [(set-pair (list a b) (set c ...)) (list a b c )])
+       ]}
+
  @item{@racket[(#,(racketidfont "regexp") _rx-expr)] --- matches a
        string that matches the regexp pattern produced by
        @racket[_rx-expr]; see @secref["regexp"] for more information

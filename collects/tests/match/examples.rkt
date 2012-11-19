@@ -2,7 +2,9 @@
 
 (require scheme/match
 	 scheme/mpair
-         scheme/control scheme/foreign
+         (except-in scheme/control set)
+         scheme/foreign
+         racket/set
          (for-syntax scheme/base)
          (prefix-in m: mzlib/match)
          (only-in srfi/13 string-contains)
@@ -703,6 +705,58 @@
                          [values (lambda _ 'no)])
            (match-let ([(list x y) (list 1 22)] [(list y z) '(2 3)])
                       (list x y z))))
+   (let ([s (set (list 1 2) 'foo "hello")])
 
+     (comp (set)
+           (match (set)
+             [(and a (set)) a]))
 
+     (comp "a"
+           (match (set "hello" (list "a"))
+             [(set (list b) "hello") b]))
+
+     (comp 1
+           (match s
+             [(set (list a 2) 'foo "hello") a]))
+
+     (let ([a 2])
+       (comp 'yes
+             (match s
+               [(set-contains-all? (list 1 a) 'foo ) 'yes])))
+
+     (comp 'yes
+           (match s
+             [(set (list 1 a) r ...) 'yes]))
+
+     (comp (list 'foo (set (list 1 2) "hello"))
+           (match s
+             [(set-pair a b) (list a b)]))
+
+     #;(comp (list 1 (list 'foo "hello") 2)
+           (match s
+             [(set-pair (list a c) (set b ...)) (list a b c)]))
+
+     (comp (list 1 (set 'foo "hello") 2)
+           (match s
+             [(set-pair (list a c) b) (list a b c)]))
+     (comp s
+           (match s
+             [(and s (set-contains-all? (list 1 2) 'foo)) s]))
+     (comp s
+           (match s
+             [(and s (set-contains-any? (list 1 2) 'bar)) s]))
+     (comp #f
+           (match s
+             [(and s (set-contains-all? (list 1 2) 'foobar)) s]
+             [else #f]))
+     (comp #f
+           (match s
+             [(and s (set-contains-any? (list 1 3) 'bar)) s]
+             [else #f]))
+     #;(comp #t
+           (match s
+                  [(set-pair x ...) ...]))
+     (comp 'foo
+           (match s
+                  [(set-pair x _) x])))
 ))

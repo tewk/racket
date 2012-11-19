@@ -21,6 +21,10 @@ pat     ::= id                                @match anything, bind identifier
          |  (BOX pat)                         @match boxed pat
          |  (struct-id pat ...)               @match struct-id instance
          |  (STRUCT struct-id (pat ...))      @match struct-id instance
+         |  (SET lvp ...)                     @match set of pats
+         |  (SET-CONTAINS-ALL? val ...)       @match set if set contains all values
+         |  (SET-CONTAINS-ANY? val ...)       @match set if set contains any value
+         |  (SET-PAIR pat pat)                @match first rest of set
          |  (REGEXP rx-expr)                  @match string
          |  (REGEXP rx-expr pat)              @match string, result with pat
          |  (PREGEXP px-expr)                 @match string
