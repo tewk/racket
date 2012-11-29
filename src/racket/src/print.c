@@ -64,6 +64,20 @@ ROSYM Scheme_Object *qq_ellipses;
 
 #define REASONABLE_QQ_DEPTH (1 << 29)
 
+
+/* notdisplay
+
+enum NOTDISPLAY {
+ NOTDISPLAY_DISPLAY = 0,
+ NOTDISPLAY_WRITE = 1,
+ NOTDISPLAY_PRINT = 2,
+ NOTDISPLAY_AS_EXPRESSION = 3,
+};
+
+*/
+
+
+
 /* locals */
 #define MAX_PRINT_BUFFER 500
 
@@ -121,6 +135,14 @@ static void print_vector(Scheme_Object *vec, int notdisplay, int compact,
                          Scheme_Marshal_Tables *mt,
 			 PrintParams *pp,
                          int as_prefab);
+static void print_flvector(Scheme_Object *vec, int notdisplay, int compact, 
+                           Scheme_Hash_Table *ht, 
+                           Scheme_Marshal_Tables *mt,
+                           PrintParams *pp);
+static void print_fxvector(Scheme_Object *vec, int notdisplay, int compact, 
+                           Scheme_Hash_Table *ht, 
+                           Scheme_Marshal_Tables *mt,
+                           PrintParams *pp);
 static void print_char(Scheme_Object *chobj, int notdisplay, PrintParams *pp);
 static char *print_to_string(Scheme_Object *obj, intptr_t * volatile len, int write,
 			     Scheme_Object *port, intptr_t maxl, 
@@ -2225,6 +2247,18 @@ print(Scheme_Object *obj, int notdisplay, int compact, Scheme_Hash_Table *ht,
       print_vector(obj, notdisplay, compact, ht, mt, pp, 0);
       closed = 1;
     }
+  else if (SCHEME_FLVECTORP(obj))
+    {
+      notdisplay = to_quoted(obj, pp, notdisplay);
+      print_flvector(obj, notdisplay, compact, ht, mt, pp);
+      closed = 1;
+    }
+  else if (SCHEME_FXVECTORP(obj))
+    {
+      notdisplay = to_quoted(obj, pp, notdisplay);
+      print_fxvector(obj, notdisplay, compact, ht, mt, pp);
+      closed = 1;
+    }
   else if ((compact || pp->print_box) && SCHEME_CHAPERONE_BOXP(obj))
     {
       if (compact && !pp->print_box) {
@@ -3774,6 +3808,112 @@ print_vector(Scheme_Object *vec, int notdisplay, int compact,
   if (!compact)
     print_utf8_string(pp, ")", 0, 1);
 }
+
+static void
+print_flvector(Scheme_Object *vec, int notdisplay, int compact, 
+	     Scheme_Hash_Table *ht, 
+             Scheme_Marshal_Tables *mt,
+	     PrintParams *pp)
+{
+  int i, size, common = 0, used_buffer = 0;
+  double *elems, elem;
+  char buffer[100];
+
+  size = SCHEME_FLVEC_SIZE(vec);
+
+  if (compact) {
+    print_escaped(pp, notdisplay, vec, ht, mt, 1);
+    return;
+  } else {
+    elems = SCHEME_FLVEC_ELS(vec);
+    for (i = size; i--; common++) {
+      if (!i || (elems[i] != elems[i - 1]))
+	break;
+    }
+    elems = NULL; /* Precise GC: because VEC_ELS is not aligned */
+    
+    if (notdisplay && pp->print_vec_shorthand && (notdisplay != 3)) {
+      if (size == 0) {
+	print_utf8_string(pp, "#fl0(", 0, 5);
+      } else {
+	char buffer[100];
+	sprintf(buffer, "#fl%d(", size);
+	print_utf8_string(pp, buffer, 0, -1);
+	size -= common;
+      }
+    } else if (notdisplay == 3)
+      print_utf8_string(pp, "(flvector ", 0, 10);
+    else
+      print_utf8_string(pp, "#fl(", 0, 4);
+  }
+
+  for (i = 0; i < size; i++) {
+    elem = SCHEME_FLVEC_ELS(vec)[i];
+    scheme_double_to_string(elem, buffer, 100, 0, &used_buffer);
+    print_utf8_string(pp, buffer, 0, -1);
+    if (i < (size - 1)) {
+      if (!compact)
+	print_utf8_string(pp, " ", 0, 1);
+    }
+  }
+
+  if (!compact)
+    print_utf8_string(pp, ")", 0, 1);
+}
+
+static void
+print_fxvector(Scheme_Object *vec, int notdisplay, int compact, 
+	     Scheme_Hash_Table *ht, 
+             Scheme_Marshal_Tables *mt,
+	     PrintParams *pp)
+{
+  int i, size, common = 0;
+  Scheme_Object **elems, *elem;
+
+  size = SCHEME_FXVEC_SIZE(vec);
+
+  if (compact) {
+    print_escaped(pp, notdisplay, vec, ht, mt, 1);
+    return;
+  } else {
+    elems = SCHEME_FXVEC_ELS(vec);
+    for (i = size; i--; common++) {
+      if (!i || (elems[i] != elems[i - 1]))
+	break;
+    }
+    elems = NULL; /* Precise GC: because VEC_ELS is not aligned */
+    
+    if (notdisplay && pp->print_vec_shorthand && (notdisplay != 3)) {
+      if (size == 0) {
+	print_utf8_string(pp, "#fx0(", 0, 5);
+      } else {
+	char buffer[100];
+	sprintf(buffer, "#fx%d(", size);
+	print_utf8_string(pp, buffer, 0, -1);
+	size -= common;
+      }
+    } else if (notdisplay == 3)
+      print_utf8_string(pp, "(fxvector ", 0, 10);
+    else
+      print_utf8_string(pp, "#fx(", 0, 4);
+  }
+
+  for (i = 0; i < size; i++) {
+    if (SCHEME_FXVECTORP(vec))
+      elem = SCHEME_FXVEC_ELS(vec)[i];
+    else
+      elem = scheme_chaperone_vector_ref(vec, i);
+    print(elem, notdisplay, compact, ht, mt, pp);
+    if (i < (size - 1)) {
+      if (!compact)
+	print_utf8_string(pp, " ", 0, 1);
+    }
+  }
+
+  if (!compact)
+    print_utf8_string(pp, ")", 0, 1);
+}
+
 
 static void
 print_char(Scheme_Object *charobj, int notdisplay, PrintParams *pp)
