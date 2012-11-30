@@ -208,9 +208,16 @@ static Scheme_Object *read_vector(Scheme_Object *port, Scheme_Object *stxsrc,
 				  Scheme_Hash_Table **ht,
 				  Scheme_Object *indentation,
 				  ReadParams *params, int allow_infix);
-static Scheme_Object *read_f_vector (Scheme_Object *port, Scheme_Object *stxsrc, 
+static Scheme_Object *read_flvector (Scheme_Object *port, Scheme_Object *stxsrc, 
                                   intptr_t line, intptr_t col, intptr_t pos,
-                                  int opener, char closer, int vtype,
+                                  int opener, char closer,
+                                  intptr_t requestLength, const mzchar *reqBuffer,
+                                  Scheme_Hash_Table **ht,
+                                  Scheme_Object *indentation,
+                                  ReadParams *params, int allow_infix);
+static Scheme_Object *read_fxvector (Scheme_Object *port, Scheme_Object *stxsrc, 
+                                  intptr_t line, intptr_t col, intptr_t pos,
+                                  int opener, char closer,
                                   intptr_t requestLength, const mzchar *reqBuffer,
                                   Scheme_Hash_Table **ht,
                                   Scheme_Object *indentation,
@@ -1229,21 +1236,30 @@ read_inner_inner(Scheme_Object *port, Scheme_Object *stxsrc, Scheme_Hash_Table *
                   switch (effective_ch)
                   {
                     case '(':
-                      return read_f_vector(port, stxsrc, line, col, pos, ch, ')', next, vector_length, vecbuf, ht, indentation, params, 0);
+                      if (next == 'l')
+                        return read_flvector(port, stxsrc, line, col, pos, ch, ')', vector_length, vecbuf, ht, indentation, params, 0);
+                      else
+                        return read_fxvector(port, stxsrc, line, col, pos, ch, ')', vector_length, vecbuf, ht, indentation, params, 0);
                       break;
                     case '[':
                       if (!params->square_brackets_are_parens) {
                         scheme_read_err(port, stxsrc, line, col, pos, 2, effective_ch, indentation, "read: bad syntax `#f%c['", next);
                         return NULL;
                       } else
-                        return read_f_vector(port, stxsrc, line, col, pos, ch, ']', next, vector_length, vecbuf, ht, indentation, params, 0);
+                        if (next == 'l')
+                          return read_flvector(port, stxsrc, line, col, pos, ch, ']', vector_length, vecbuf, ht, indentation, params, 0);
+                        else
+                          return read_fxvector(port, stxsrc, line, col, pos, ch, ']', vector_length, vecbuf, ht, indentation, params, 0);
                       break;
                     case '{':
                       if (!params->curly_braces_are_parens) {
                         scheme_read_err(port, stxsrc, line, col, pos, 2, effective_ch, indentation, "read: bad syntax `#f%c{'", next);
                         return NULL;
                       } else
-                        return read_f_vector(port, stxsrc, line, col, pos, ch, '}', next, vector_length, vecbuf, ht, indentation, params, 0);
+                        if (next == 'l')
+                          return read_flvector(port, stxsrc, line, col, pos, ch, '}', vector_length, vecbuf, ht, indentation, params, 0);
+                        else
+                          return read_fxvector(port, stxsrc, line, col, pos, ch, '}', vector_length, vecbuf, ht, indentation, params, 0);
                       break;
                     default:
                       scheme_read_err(port, stxsrc, line, col, pos, 2, effective_ch, indentation,
@@ -3270,207 +3286,41 @@ char *scheme_extract_indentation_suggestions(Scheme_Object *indentation)
 /*========================================================================*/
 /*                            vector reader                               */
 /*========================================================================*/
+#define FUNC_NAME read_vector
+#define VTYPE_STR "vector"
+#define VEC_TYPE Scheme_Object
+#define ELMS_TYPE Scheme_Object **
+#define ELM_TYPE Scheme_Object *
+#define MK_VEC() (Scheme_Object *) scheme_make_vector(requestLength, NULL)
+#define ELMS_SELECTOR SCHEME_VEC_ELS
+#define ELM_SELECTOR
+#define ELM_MAKE_ZERO scheme_make_integer(0)
+#define VEC_SIZE SCHEME_VEC_SIZE
+#include "read_vector.inc"
 
-/* "#(" has been read */
-static Scheme_Object *
-read_vector (Scheme_Object *port,
-	     Scheme_Object *stxsrc, intptr_t line, intptr_t col, intptr_t pos,
-	     int opener, char closer,
-	     intptr_t requestLength, const mzchar *reqBuffer,
-	     Scheme_Hash_Table **ht,
-	     Scheme_Object *indentation, ReadParams *params, int allow_infix)
-/* requestLength == -1 => no request
-   requestLength == -2 => overflow */
-{
-  Scheme_Object *lresult, *obj, *vec, **els;
-  int len, i;
+#define FUNC_NAME read_fxvector
+#define VTYPE_STR "fxvector"
+#define VEC_TYPE Scheme_Object
+#define ELMS_TYPE Scheme_Object **
+#define ELM_TYPE Scheme_Object *
+#define MK_VEC() (Scheme_Object *) scheme_alloc_fxvector(requestLength)
+#define ELMS_SELECTOR SCHEME_FXVEC_ELS
+#define ELM_SELECTOR
+#define ELM_MAKE_ZERO scheme_make_integer(0)
+#define VEC_SIZE SCHEME_FXVEC_SIZE
+#include "read_vector.inc"
 
-  lresult = read_list(port, stxsrc, line, col, pos, opener, closer, 
-                      allow_infix ? mz_shape_vec_plus_infix : mz_shape_vec, 
-                      1, ht, indentation, params);
-
-  if (requestLength == -2) {
-    scheme_raise_out_of_memory("read", "making vector of size %5", reqBuffer);
-    return NULL;
-  }
-
-  if (stxsrc)
-    obj = ((Scheme_Stx *)lresult)->val;
-  else
-    obj = lresult;
-
-  len = scheme_list_length(obj);
-  if (requestLength >= 0 && len > requestLength) {
-    char buffer[20];
-    sprintf(buffer, "%" PRIdPTR, requestLength);
-    scheme_read_err(port, stxsrc, line, col, pos, SPAN(port, pos), 0, indentation,
-		    "read: vector length %ld is too small, "
-		    "%d values provided",
-		    requestLength, len);
-    return NULL;
-  }
-  if (requestLength < 0)
-    requestLength = len;
-  vec = scheme_make_vector(requestLength, NULL);
-  els = SCHEME_VEC_ELS(vec);
-  for (i = 0; i < len ; i++) {
-    els[i] = SCHEME_CAR(obj);
-    obj = SCHEME_CDR(obj);
-  }
-  els = NULL;
-  if (i < requestLength) {
-    if (len)
-      obj = SCHEME_VEC_ELS(vec)[len - 1];
-    else {
-      obj = scheme_make_integer(0);
-      if (stxsrc)
-	obj = scheme_make_stx_w_offset(obj, line, col, pos, SPAN(port, pos), stxsrc, STX_SRCTAG);
-    }
-
-    els = SCHEME_VEC_ELS(vec);
-    for (; i < requestLength; i++) {
-      els[i] = obj;
-    }
-    els = NULL;
-  }
-
-  if (stxsrc) {
-    if (SCHEME_VEC_SIZE(vec) > 0)
-      SCHEME_SET_VECTOR_IMMUTABLE(vec);
-    ((Scheme_Stx *)lresult)->val = vec;
-    return lresult;
-  } else
-    return vec;
-}
-
-/* "#fl(" has been read */
-static Scheme_Object *
-read_f_vector (Scheme_Object *port,
-	     Scheme_Object *stxsrc, intptr_t line, intptr_t col, intptr_t pos,
-	     int opener, char closer, int vtype,
-	     intptr_t requestLength, const mzchar *reqBuffer,
-	     Scheme_Hash_Table **ht,
-	     Scheme_Object *indentation, ReadParams *params, int allow_infix)
-{
-  Scheme_Object *lresult, *obj;
-  int len, i;
-
-  lresult = read_list(port, stxsrc, line, col, pos, opener, closer, 
-                      mz_shape_fl_fx_vec, 1, ht, indentation, params);
-
-  if (requestLength == -2) {
-    char *vtype_str;
-    if (vtype == 'l') vtype_str = "flvector";
-    else vtype_str = "fxvector";
-    scheme_raise_out_of_memory("read", "making %s of size %5", vtype_str, reqBuffer);
-    return NULL;
-  }
-
-  if (stxsrc)
-    obj = ((Scheme_Stx *)lresult)->val;
-  else
-    obj = lresult;
-
-  len = scheme_list_length(obj);
-  if (requestLength >= 0 && len > requestLength) {
-    char buffer[20];
-    char *vtype_str;
-    if (vtype == 'l') vtype_str = "flvector";
-    else vtype_str = "fxvector";
-    sprintf(buffer, "%" PRIdPTR, requestLength);
-    scheme_read_err(port, stxsrc, line, col, pos, SPAN(port, pos), 0, indentation,
-		    "read: %s length %ld is too small, "
-		    "%d values provided", vtype_str, requestLength, len);
-    return NULL;
-  }
-  if (requestLength < 0)
-    requestLength = len;
-
-  if (vtype == 'l') {
-    Scheme_Double_Vector *vec;
-    double *els;
-    double dbl;
-
-    vec = scheme_alloc_flvector(requestLength);
-    els = SCHEME_FLVEC_ELS(vec);
-    for (i = 0; i < len ; i++) {
-      Scheme_Object *car = SCHEME_CAR(obj); 
-      if (!SCHEME_DBLP(car)) {                                                                              
-        /* scheme_read_err(port, stxsrc, line, col, pos, 2, vtype, indentation, */
-        /*                               "read: expected a flonum? after #f%c(", vtype); */
-        scheme_wrong_contract("read", "flonum?", 0, 1, &car);                                                  
-        return NULL;                                                                                            
-      }
-      els[i] = SCHEME_DBL_VAL(car);
-      obj = SCHEME_CDR(obj);
-    }
-    els = NULL;
-    if (i < requestLength) {
-      if (len)
-        dbl = SCHEME_FLVEC_ELS(vec)[len - 1];
-      else {
-        dbl = 0.0;
-        if (stxsrc)
-          obj = scheme_make_stx_w_offset(scheme_make_double(dbl), line, col, pos, SPAN(port, pos), stxsrc, STX_SRCTAG);
-      }
-
-      els = SCHEME_FLVEC_ELS(vec);
-      for (; i < requestLength; i++) {
-        els[i] = dbl;
-      }
-      els = NULL;
-    }
-
-    if (stxsrc) {
-      if (SCHEME_FLVEC_SIZE(vec) > 0)
-        SCHEME_SET_VECTOR_IMMUTABLE(vec);
-      ((Scheme_Stx *)lresult)->val = (Scheme_Object *) vec;
-      return lresult;
-    } else
-      return (Scheme_Object *) vec;
-  }
-  else {
-    Scheme_Object *vec, **els;
-    vec = (Scheme_Object *) scheme_alloc_fxvector(requestLength);
-    els = SCHEME_FXVEC_ELS(vec);
-    for (i = 0; i < len ; i++) {
-      Scheme_Object *car = SCHEME_CAR(obj); 
-      if (!SCHEME_INTP(car)) {                                                                              
-        /* scheme_read_err(port, stxsrc, line, col, pos, 2, vtype, indentation, */
-        /*                               "read: expected a fixnum? after #f%c(", vtype); */
-        scheme_wrong_contract("read", "fixnum?", 0, 1, &car);                                                  
-        return NULL;                                                                                            
-      }
-      els[i] = car;
-      obj = SCHEME_CDR(obj);
-    }
-    els = NULL;
-    if (i < requestLength) {
-      if (len)
-        obj = SCHEME_FXVEC_ELS(vec)[len - 1];
-      else {
-        obj = scheme_make_integer(0);
-        if (stxsrc)
-          obj = scheme_make_stx_w_offset(obj, line, col, pos, SPAN(port, pos), stxsrc, STX_SRCTAG);
-      }
-
-      els = SCHEME_FXVEC_ELS(vec);
-      for (; i < requestLength; i++) {
-        els[i] = obj;
-      }
-      els = NULL;
-    }
-
-    if (stxsrc) {
-      if (SCHEME_FXVEC_SIZE(vec) > 0)
-        SCHEME_SET_VECTOR_IMMUTABLE(vec);
-      ((Scheme_Stx *)lresult)->val = vec;
-      return lresult;
-    } else
-      return vec;
-  }
-  return NULL;
-}
+#define FUNC_NAME read_flvector
+#define VTYPE_STR "flvector"
+#define VEC_TYPE Scheme_Double_Vector
+#define ELMS_TYPE double *
+#define ELM_TYPE double
+#define MK_VEC() scheme_alloc_flvector(requestLength)
+#define ELMS_SELECTOR SCHEME_FLVEC_ELS
+#define ELM_SELECTOR SCHEME_DBL_VAL
+#define ELM_MAKE_ZERO 0.0
+#define VEC_SIZE SCHEME_FLVEC_SIZE
+#include "read_vector.inc"
 
 /*========================================================================*/
 /*                            symbol reader                               */
