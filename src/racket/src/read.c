@@ -307,6 +307,24 @@ static Scheme_Object *readtable_call(int w_char, int ch, Scheme_Object *proc, Re
 				     Scheme_Object *port, Scheme_Object *src, intptr_t line, intptr_t col, intptr_t pos,
                                      int get_info,
 				     Scheme_Hash_Table **ht, Scheme_Object *modpath_stx);
+static Scheme_Object *read_flonum(Scheme_Object *port, 
+				  Scheme_Object *stxsrc, 
+				  Scheme_Hash_Table **ht,
+				  Scheme_Object *indentation, 
+				  ReadParams *params,
+				  int comment_mode);
+static Scheme_Object *read_fixnum(Scheme_Object *port, 
+				  Scheme_Object *stxsrc, 
+				  Scheme_Hash_Table **ht,
+				  Scheme_Object *indentation, 
+				  ReadParams *params,
+				  int comment_mode);
+static Scheme_Object *read_number_literal(Scheme_Object *port, 
+				  Scheme_Object *stxsrc, 
+				  Scheme_Hash_Table **ht,
+				  Scheme_Object *indentation, 
+				  ReadParams *params,
+				  int comment_mode);
 
 #define READTABLE_WHITESPACE 0x1
 #define READTABLE_CONTINUING 0x2
@@ -2728,9 +2746,16 @@ read_list(Scheme_Object *port,
 	prefetched = NULL;
       } else {
 	scheme_ungetc(ch, port);
-	car = read_inner(port, (((shape == mz_shape_fl_vec )
-                                 || (shape == mz_shape_fx_vec )) ? NULL : stxsrc), ht, indentation, params, 
-                         RETURN_FOR_SPECIAL_COMMENT);
+        switch (shape) {
+          case mz_shape_fl_vec:
+            car = read_flonum(port, NULL, ht, indentation, params, RETURN_FOR_SPECIAL_COMMENT);
+            break;
+          case mz_shape_fx_vec:
+            car = read_fixnum(port, NULL, ht, indentation, params, RETURN_FOR_SPECIAL_COMMENT);
+            break;
+          default:
+	    car = read_inner(port, stxsrc, ht, indentation, params, RETURN_FOR_SPECIAL_COMMENT);
+        }
 	if (!car) continue; /* special was a comment */
       }
       /* can't be eof, due to check above */
@@ -2891,6 +2916,116 @@ static Scheme_Object *attach_shape_property(Scheme_Object *list,
     return scheme_stx_property(list, paren_shape_symbol, opener);
   }
   return list;
+}
+
+static Scheme_Object *read_flonum(Scheme_Object *port, 
+				  Scheme_Object *stxsrc, 
+				  Scheme_Hash_Table **ht,
+				  Scheme_Object *indentation, 
+				  ReadParams *params,
+				  int comment_mode)
+{
+  intptr_t line = 0, col = 0, pos = 0;
+  intptr_t line2 = 0, col2 = 0, pos2 = 0;
+  Scheme_Object *n;
+  scheme_tell_all(port, &line, &col, &pos);
+  n = read_number_literal(port, stxsrc, ht, indentation, params, comment_mode);
+  if (SCHEME_DBLP(n))
+    return n;
+  else {
+    scheme_tell_all(port, &line2, &col2, &pos2);
+    //printf("%d %d %d %d %d %d\n", line, col, pos, line2, col2, pos2);
+    scheme_read_err(port, stxsrc, line, col, pos, pos2-pos, -1, indentation, "read: expected flonum, got %V", n);
+  }
+  return NULL;
+}
+
+static Scheme_Object *read_fixnum(Scheme_Object *port, 
+				  Scheme_Object *stxsrc, 
+				  Scheme_Hash_Table **ht,
+				  Scheme_Object *indentation, 
+				  ReadParams *params,
+				  int comment_mode)
+{
+  intptr_t line = 0, col = 0, pos = 0;
+  intptr_t line2 = 0, col2 = 0, pos2 = 0;
+  Scheme_Object *n;
+  scheme_tell_all(port, &line, &col, &pos);
+  n = read_number_literal(port, stxsrc, ht, indentation, params, comment_mode);
+  if (SCHEME_INTP(n))
+    return n;
+  else
+    scheme_tell_all(port, &line2, &col2, &pos2);
+    scheme_read_err(port, stxsrc, line, col, pos, pos2-pos, -1, indentation, "read: expected fixnum, got %V", n);
+  return NULL;
+}
+
+static Scheme_Object *read_number_literal(Scheme_Object *port, 
+				  Scheme_Object *stxsrc, 
+				  Scheme_Hash_Table **ht,
+				  Scheme_Object *indentation, 
+				  ReadParams *params,
+				  int comment_mode)
+{
+  int ch, ch2;
+  intptr_t line = 0, col = 0, pos = 0;
+  Scheme_Object *special_value = NULL;
+  Readtable *table;
+
+  table = params->table;
+  scheme_tell_all(port, &line, &col, &pos);
+  ch = scheme_getc_special_ok(port);
+  switch (ch) {
+    case '+':
+    case '-':
+    case '.': /* ^^^ fallthrough ^^^ */
+      ch2 = scheme_peekc_special_ok(port);
+      if ((NOT_EOF_OR_SPECIAL(ch2) && isdigit_ascii(ch2)) || (ch2 == '.')
+	  || ((ch2 == 'i') || (ch2 == 'I') /* Maybe inf */
+              || (ch2 == 'n') || (ch2 == 'N') /* Maybe nan*/ )) {
+	/* read_number tries to get a number, but produces a symbol if number parsing doesn't work: */
+	special_value = read_number(ch, port, stxsrc, line, col, pos, 0, 0, 10, 0, ht, indentation, params, table);
+      } else {
+        scheme_read_err(port, stxsrc, line, col, pos, 2, ch, indentation, "read: expected number");
+      }
+      break;
+    case '#':
+      ch = scheme_getc_special_ok(port);
+      switch (ch ) {
+	case 'X':
+	case 'x': 
+          return read_number(-1, port, stxsrc, line, col, pos, 0, 0, 16, 1, ht, indentation, params, table);
+	  break;
+	case 'B':
+	case 'b': 
+          return read_number(-1, port, stxsrc, line, col, pos, 0, 0, 2, 1, ht, indentation, params, table);
+	  break;
+	case 'O':
+	case 'o': 
+          return read_number(-1, port, stxsrc, line, col, pos, 0, 0, 8, 1, ht, indentation, params, table);
+	  break;
+	case 'D':
+	case 'd': 
+          return read_number(-1, port, stxsrc, line, col, pos, 0, 0, 10, 1, ht, indentation, params, table);
+	  break;
+	case 'E':
+	case 'e': 
+          return read_number(-1, port, stxsrc, line, col, pos, 0, 1, 10, 0, ht, indentation, params, table);
+	  break;
+	case 'I':
+	case 'i': 
+          return read_number(-1, port, stxsrc, line, col, pos, 1, 0, 10, 0, ht, indentation, params, table);
+	  break;
+        default:
+          scheme_read_err(port, stxsrc, line, col, pos, 2, ch, indentation, "read: expected one of [XxBbOoDdEeII]");
+      }
+    default:
+      if (isdigit_ascii(ch))
+	special_value = read_number(ch, port, stxsrc, line, col, pos, 0, 0, 10, 0, ht, indentation, params, table);
+      else
+        scheme_read_err(port, stxsrc, line, col, pos, 2, ch, indentation, "read: expected digit");
+  }
+  return special_value;
 }
 
 /*========================================================================*/
