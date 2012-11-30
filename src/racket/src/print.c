@@ -3775,7 +3775,7 @@ print_pair(Scheme_Object *pair, int notdisplay, int compact,
     else \
       elem = scheme_chaperone_vector_ref(vec, i); \
 } while(0);
-#define F_0 print_utf8_string(pp, "#s(", 0, 3)
+#define F_0 print_utf8_string(pp, "#0(", 0, 3)
 #define F_D sprintf(buffer, "#%d(", size)
 #define F_VECTOR print_utf8_string(pp, "(vector ", 0, 8)
 #define F_ print_utf8_string(pp, "#(", 0, 2)
