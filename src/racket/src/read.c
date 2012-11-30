@@ -142,7 +142,8 @@ static MZ_INLINE intptr_t SPAN(Scheme_Object *port, intptr_t pos) {
 #define mz_shape_hash_list 2
 #define mz_shape_hash_elem 3
 #define mz_shape_vec_plus_infix 4
-#define mz_shape_fl_fx_vec 5
+#define mz_shape_fl_vec 5
+#define mz_shape_fx_vec 6
 
 typedef struct Readtable {
   Scheme_Object so;
@@ -2727,7 +2728,8 @@ read_list(Scheme_Object *port,
 	prefetched = NULL;
       } else {
 	scheme_ungetc(ch, port);
-	car = read_inner(port, ((shape == mz_shape_fl_fx_vec ) ? NULL : stxsrc), ht, indentation, params, 
+	car = read_inner(port, (((shape == mz_shape_fl_vec )
+                                 || (shape == mz_shape_fx_vec )) ? NULL : stxsrc), ht, indentation, params, 
                          RETURN_FOR_SPECIAL_COMMENT);
 	if (!car) continue; /* special was a comment */
       }
@@ -3291,6 +3293,7 @@ char *scheme_extract_indentation_suggestions(Scheme_Object *indentation)
 #define VEC_TYPE Scheme_Object
 #define ELMS_TYPE Scheme_Object **
 #define ELM_TYPE Scheme_Object *
+#define MZ_SHAPE allow_infix ? mz_shape_vec_plus_infix : mz_shape_vec
 #define MK_VEC() (Scheme_Object *) scheme_make_vector(requestLength, NULL)
 #define ELMS_SELECTOR SCHEME_VEC_ELS
 #define ELM_SELECTOR
@@ -3303,6 +3306,7 @@ char *scheme_extract_indentation_suggestions(Scheme_Object *indentation)
 #define VEC_TYPE Scheme_Object
 #define ELMS_TYPE Scheme_Object **
 #define ELM_TYPE Scheme_Object *
+#define MZ_SHAPE mz_shape_fx_vec
 #define MK_VEC() (Scheme_Object *) scheme_alloc_fxvector(requestLength)
 #define ELMS_SELECTOR SCHEME_FXVEC_ELS
 #define ELM_SELECTOR
@@ -3315,6 +3319,7 @@ char *scheme_extract_indentation_suggestions(Scheme_Object *indentation)
 #define VEC_TYPE Scheme_Double_Vector
 #define ELMS_TYPE double *
 #define ELM_TYPE double
+#define MZ_SHAPE mz_shape_fl_vec
 #define MK_VEC() scheme_alloc_flvector(requestLength)
 #define ELMS_SELECTOR SCHEME_FLVEC_ELS
 #define ELM_SELECTOR SCHEME_DBL_VAL

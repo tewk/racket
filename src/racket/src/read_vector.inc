@@ -10,9 +10,6 @@ FUNC_NAME   (Scheme_Object *port,
 	     Scheme_Object *indentation, ReadParams *params, int allow_infix)
 /* requestLength == -1 => no request
    requestLength == -2 => overflow */
-/* vtype == 'l' -> flvector
-   vtype == 'x' -> fxvector
-   vtype == 'v' -> vector */
 {
   Scheme_Object *lresult, *obj;
   VEC_TYPE *vec;
@@ -24,7 +21,7 @@ FUNC_NAME   (Scheme_Object *port,
   vtype_str = VTYPE_STR;
 
   lresult = read_list(port, stxsrc, line, col, pos, opener, closer, 
-                      allow_infix ? mz_shape_vec_plus_infix : mz_shape_vec, 
+                      MZ_SHAPE,
                       1, ht, indentation, params);
 
   if (requestLength == -2) {
@@ -86,6 +83,7 @@ FUNC_NAME   (Scheme_Object *port,
 #undef VEC_TYPE
 #undef ELMS_TYPE
 #undef ELM_TYPE
+#undef MZ_SHAPE
 #undef MK_VEC
 #undef ELMS_SELECTOR
 #undef ELM_SELECTOR
