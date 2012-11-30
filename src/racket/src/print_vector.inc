@@ -25,17 +25,17 @@ FUNC_NAME (Scheme_Object *vec, int notdisplay, int compact,
       print_utf8_string(pp, "#s(", 0, 3);
     } else if (notdisplay && pp->print_vec_shorthand && (notdisplay != 3)) {
       if (size == 0) {
-	F_0
+	F_0;
       } else {
 	char buffer[100];
-	F_D
+	F_D;
 	print_utf8_string(pp, buffer, 0, -1);
 	size -= common;
       }
     } else if (notdisplay == 3)
-      F_VECTOR
+      F_VECTOR;
     else
-      F_
+      F_;
   }
 
   for (i = 0; i < size; i++) {
