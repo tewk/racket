@@ -321,6 +321,7 @@ static Scheme_Object *read_fixnum(Scheme_Object *port,
 				  int comment_mode);
 static Scheme_Object *read_number_literal(Scheme_Object *port, 
 				  Scheme_Object *stxsrc, 
+                                  int is_float, int is_not_float,
 				  Scheme_Hash_Table **ht,
 				  Scheme_Object *indentation, 
 				  ReadParams *params,
@@ -923,6 +924,29 @@ static int read_vector_length(Scheme_Object *port, Readtable *table, int *ch, mz
 }
 
 static Scheme_Object *
+read_plus_minus_period_leading_number(Scheme_Object *port, Scheme_Object *stxsrc,
+    int ch, intptr_t line, intptr_t col, intptr_t pos,
+    int is_float, int is_not_float,
+    Scheme_Hash_Table **ht, Scheme_Object *indentation, ReadParams *params,
+    Readtable *table)
+{
+  int ch2;
+  Scheme_Object *special_value;
+  ch2 = scheme_peekc_special_ok(port);
+  if ((NOT_EOF_OR_SPECIAL(ch2) && isdigit_ascii(ch2)) || (ch2 == '.')
+      || ((ch2 == 'i') || (ch2 == 'I') /* Maybe inf */
+          || (ch2 == 'n') || (ch2 == 'N') /* Maybe nan*/ )) {
+    /* read_number tries to get a number, but produces a symbol if number parsing doesn't work: */
+    special_value = read_number(ch, port, stxsrc, line, col, pos, 
+        is_float, is_not_float, 10, 0, ht, indentation, params, table);
+  } else {
+    special_value = read_symbol(ch, 0, port, stxsrc, line, col, pos, ht, indentation, params, table);
+  }
+  return special_value;
+}
+
+
+static Scheme_Object *
 read_inner_inner(Scheme_Object *port, Scheme_Object *stxsrc, Scheme_Hash_Table **ht,
 		 Scheme_Object *indentation, ReadParams *params,
 		 int comment_mode, int pre_char, Readtable *table,
@@ -1118,15 +1142,7 @@ read_inner_inner(Scheme_Object *port, Scheme_Object *stxsrc, Scheme_Hash_Table *
     case '+':
     case '-':
     case '.': /* ^^^ fallthrough ^^^ */
-      ch2 = scheme_peekc_special_ok(port);
-      if ((NOT_EOF_OR_SPECIAL(ch2) && isdigit_ascii(ch2)) || (ch2 == '.')
-	  || ((ch2 == 'i') || (ch2 == 'I') /* Maybe inf */
-              || (ch2 == 'n') || (ch2 == 'N') /* Maybe nan*/ )) {
-	/* read_number tries to get a number, but produces a symbol if number parsing doesn't work: */
-	special_value = read_number(ch, port, stxsrc, line, col, pos, 0, 0, 10, 0, ht, indentation, params, table);
-      } else {
-	special_value = read_symbol(ch, 0, port, stxsrc, line, col, pos, ht, indentation, params, table);
-      }
+      special_value = read_plus_minus_period_leading_number(port, stxsrc, ch, line, col, pos, 0, 0, ht, indentation, params, table);
       break;
     case '#':
       ch = scheme_getc_special_ok(port);
@@ -2929,7 +2945,7 @@ static Scheme_Object *read_flonum(Scheme_Object *port,
   intptr_t line2 = 0, col2 = 0, pos2 = 0;
   Scheme_Object *n;
   scheme_tell_all(port, &line, &col, &pos);
-  n = read_number_literal(port, stxsrc, ht, indentation, params, comment_mode);
+  n = read_number_literal(port, stxsrc, 1, 0, ht, indentation, params, comment_mode);
   if (SCHEME_DBLP(n))
     return n;
   else {
@@ -2951,7 +2967,7 @@ static Scheme_Object *read_fixnum(Scheme_Object *port,
   intptr_t line2 = 0, col2 = 0, pos2 = 0;
   Scheme_Object *n;
   scheme_tell_all(port, &line, &col, &pos);
-  n = read_number_literal(port, stxsrc, ht, indentation, params, comment_mode);
+  n = read_number_literal(port, stxsrc, 0, 1, ht, indentation, params, comment_mode);
   if (SCHEME_INTP(n))
     return n;
   else
@@ -2962,6 +2978,7 @@ static Scheme_Object *read_fixnum(Scheme_Object *port,
 
 static Scheme_Object *read_number_literal(Scheme_Object *port, 
 				  Scheme_Object *stxsrc, 
+                                  int is_float, int is_not_float,
 				  Scheme_Hash_Table **ht,
 				  Scheme_Object *indentation, 
 				  ReadParams *params,
@@ -2979,49 +2996,48 @@ static Scheme_Object *read_number_literal(Scheme_Object *port,
     case '+':
     case '-':
     case '.': /* ^^^ fallthrough ^^^ */
-      ch2 = scheme_peekc_special_ok(port);
-      if ((NOT_EOF_OR_SPECIAL(ch2) && isdigit_ascii(ch2)) || (ch2 == '.')
-	  || ((ch2 == 'i') || (ch2 == 'I') /* Maybe inf */
-              || (ch2 == 'n') || (ch2 == 'N') /* Maybe nan*/ )) {
-	/* read_number tries to get a number, but produces a symbol if number parsing doesn't work: */
-	special_value = read_number(ch, port, stxsrc, line, col, pos, 0, 0, 10, 0, ht, indentation, params, table);
-      } else {
-        scheme_read_err(port, stxsrc, line, col, pos, 2, ch, indentation, "read: expected number");
-      }
+      special_value = read_plus_minus_period_leading_number(port, stxsrc, ch, line, col, pos, is_float, is_not_float, ht, indentation, params, table);
       break;
     case '#':
       ch = scheme_getc_special_ok(port);
       switch (ch ) {
 	case 'X':
 	case 'x': 
-          return read_number(-1, port, stxsrc, line, col, pos, 0, 0, 16, 1, ht, indentation, params, table);
+          /* 0 0 */
+          return read_number(-1, port, stxsrc, line, col, pos, is_float, is_not_float, 16, 1, ht, indentation, params, table);
 	  break;
 	case 'B':
 	case 'b': 
-          return read_number(-1, port, stxsrc, line, col, pos, 0, 0, 2, 1, ht, indentation, params, table);
+          /* 0 0 */
+          return read_number(-1, port, stxsrc, line, col, pos, is_float, is_not_float, 2, 1, ht, indentation, params, table);
 	  break;
 	case 'O':
 	case 'o': 
-          return read_number(-1, port, stxsrc, line, col, pos, 0, 0, 8, 1, ht, indentation, params, table);
+          /* 0 0 */
+          return read_number(-1, port, stxsrc, line, col, pos, is_float, is_not_float, 8, 1, ht, indentation, params, table);
 	  break;
 	case 'D':
 	case 'd': 
-          return read_number(-1, port, stxsrc, line, col, pos, 0, 0, 10, 1, ht, indentation, params, table);
+          /* 0 0 */
+          return read_number(-1, port, stxsrc, line, col, pos, is_float, is_not_float, 10, 1, ht, indentation, params, table);
 	  break;
 	case 'E':
 	case 'e': 
-          return read_number(-1, port, stxsrc, line, col, pos, 0, 1, 10, 0, ht, indentation, params, table);
+          /* 0 1 */
+          return read_number(-1, port, stxsrc, line, col, pos, is_float, is_not_float, 10, 0, ht, indentation, params, table);
 	  break;
 	case 'I':
 	case 'i': 
-          return read_number(-1, port, stxsrc, line, col, pos, 1, 0, 10, 0, ht, indentation, params, table);
+          /* 1 0 */
+          return read_number(-1, port, stxsrc, line, col, pos, is_float, is_not_float, 10, 0, ht, indentation, params, table);
 	  break;
         default:
           scheme_read_err(port, stxsrc, line, col, pos, 2, ch, indentation, "read: expected one of [XxBbOoDdEeII]");
       }
     default:
       if (isdigit_ascii(ch))
-	special_value = read_number(ch, port, stxsrc, line, col, pos, 0, 0, 10, 0, ht, indentation, params, table);
+        /* 0 0 */
+	special_value = read_number(ch, port, stxsrc, line, col, pos, is_float, is_not_float, 10, 0, ht, indentation, params, table);
       else
         scheme_read_err(port, stxsrc, line, col, pos, 2, ch, indentation, "read: expected digit");
   }
